@@ -43,6 +43,32 @@ function pppoe_parse_output(string $raw): array
     return $parsed;
 }
 
+function pppoe_uptime_seconds(string $uptime): int
+{
+    $uptime = trim($uptime);
+    if ($uptime === '') {
+        return 0;
+    }
+    $map = [
+        'w' => 604800,
+        'd' => 86400,
+        'h' => 3600,
+        'm' => 60,
+        's' => 1,
+    ];
+    if (preg_match_all('/(\d+)([wdhms])/', $uptime, $matches, PREG_SET_ORDER)) {
+        $seconds = 0;
+        foreach ($matches as $m) {
+            $seconds += ((int) ($m[1] ?? 0)) * ($map[$m[2] ?? 's'] ?? 0);
+        }
+        return $seconds;
+    }
+    if (preg_match('/^(\d+):(\d+):(\d+)$/', $uptime, $m)) {
+        return ((int) $m[1]) * 3600 + ((int) $m[2]) * 60 + ((int) $m[3]);
+    }
+    return 0;
+}
+
 $routers = pppoe_read_store($storeFile);
 $serverRouters = array_values(array_filter($routers, function ($r) {
     return strtolower(trim($r['category'] ?? '')) === 'server';
@@ -50,6 +76,8 @@ $serverRouters = array_values(array_filter($routers, function ($r) {
 
 $connections = [];
 $errors = [];
+$sortDir = strtolower($_GET['sort'] ?? 'desc');
+$sortDir = in_array($sortDir, ['asc', 'desc'], true) ? $sortDir : 'desc';
 
 foreach ($serverRouters as $router) {
     $addressRaw = trim($router['address'] ?? '');
@@ -94,12 +122,19 @@ foreach ($serverRouters as $router) {
                 'caller' => $row['caller-id'] ?? ($row['caller'] ?? '-'),
                 'remote' => $row['address'] ?? '-',
                 'uptime' => $row['uptime'] ?? '-',
+                'uptime_seconds' => pppoe_uptime_seconds($row['uptime'] ?? ''),
             ];
         }
     } catch (Throwable $e) {
         $errors[] = "Gagal konek ke {$name} ({$host}:{$port}): " . $e->getMessage();
         continue;
     }
+}
+
+if (!empty($connections)) {
+    $uptimes = array_column($connections, 'uptime_seconds');
+    $sortFlag = $sortDir === 'asc' ? SORT_ASC : SORT_DESC;
+    array_multisort($uptimes, $sortFlag, SORT_NUMERIC, $connections);
 }
 ?>
 
@@ -136,6 +171,7 @@ foreach ($serverRouters as $router) {
 <?php else: ?>
   <div class="panel">
     <h4>Sesi PPPoE</h4>
+    <div class="label">Klik kolom Uptime untuk urutkan (saat ini: <?php echo $sortDir === 'asc' ? 'pendek → panjang' : 'panjang → pendek'; ?>).</div>
     <table class="table">
       <thead>
         <tr>
@@ -144,7 +180,11 @@ foreach ($serverRouters as $router) {
           <th>Service</th>
           <th>Caller</th>
           <th>Remote IP</th>
-          <th>Uptime</th>
+          <th>
+            <a href="?page=pppoe&sort=<?php echo $sortDir === 'asc' ? 'desc' : 'asc'; ?>" style="color:inherit;">
+              Uptime <?php echo $sortDir === 'asc' ? '↑' : '↓'; ?>
+            </a>
+          </th>
         </tr>
       </thead>
       <tbody>
