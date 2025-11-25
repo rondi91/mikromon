@@ -36,6 +36,12 @@ a {
   text-decoration: none;
 }
 
+select,
+option {
+  background: var(--panel);
+  color: var(--text);
+}
+
 .app {
   min-height: 100vh;
 }
@@ -352,6 +358,11 @@ a {
 
 .table tr:last-child td {
   border-bottom: none;
+}
+
+.text-wrap {
+  white-space: normal;
+  word-break: break-word;
 }
 
 .status-dot {
