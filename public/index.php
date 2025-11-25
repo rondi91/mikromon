@@ -4,6 +4,7 @@ $basePath = dirname(__DIR__);
 $pages = [
     'dashboard' => ['title' => 'Dashboard'],
     'users' => ['title' => 'Pengguna'],
+    'routers' => ['title' => 'Router Mikrotik'],
     'reports' => ['title' => 'Laporan'],
 ];
 
