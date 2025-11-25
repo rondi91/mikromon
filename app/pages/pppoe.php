@@ -76,12 +76,133 @@ $serverRouters = array_values(array_filter($routers, function ($r) {
 
 $connections = [];
 $errors = [];
+$messages = [];
 $filterProfile = isset($_GET['profile']) ? trim((string) $_GET['profile']) : '';
 $filterRouter = isset($_GET['router']) ? trim((string) $_GET['router']) : '';
 $profileOptions = [];
 $profileMap = [];
+$secrets = [];
+$activeKeys = [];
+$inactiveUsers = [];
+$serverStats = [];
+
+if (!function_exists('ros_quote')) {
+    function ros_quote(string $val): string
+    {
+        return '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], $val) . '"';
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['_action'] ?? '') === 'update_pppoe_profile') {
+    $targetRouter = trim((string) ($_POST['router'] ?? ''));
+    $targetUser = trim((string) ($_POST['user'] ?? ''));
+    $newProfile = trim((string) ($_POST['profile'] ?? ''));
+
+    if ($targetRouter === '' || $targetUser === '' || $newProfile === '') {
+        $errors[] = 'Router, user, dan profile wajib diisi.';
+    } else {
+        $routerData = null;
+        foreach ($serverRouters as $r) {
+            if (strcasecmp($r['name'] ?? '', $targetRouter) === 0) {
+                $routerData = $r;
+                break;
+            }
+        }
+
+        if (!$routerData) {
+            $errors[] = "Router {$targetRouter} tidak ditemukan atau bukan kategori server.";
+        } else {
+            $addressRaw = trim($routerData['address'] ?? '');
+            $username = $routerData['username'] ?? '';
+            $password = $routerData['password'] ?? '';
+            if ($addressRaw === '' || $username === '' || $password === '') {
+                $errors[] = "Kredensial router {$targetRouter} belum lengkap.";
+            } else {
+                $host = $addressRaw;
+                $port = 22;
+                if (strpos($addressRaw, ':') !== false) {
+                    [$hp, $pp] = explode(':', $addressRaw, 2);
+                    $host = $hp;
+                    $port = is_numeric($pp) ? (int) $pp : 22;
+                }
+
+                try {
+                    $ssh = new SSH2($host, $port);
+                    $ssh->setTimeout(5);
+                    if (!$ssh->login($username, $password)) {
+                        $errors[] = "Login gagal ke {$targetRouter}.";
+                    } else {
+                        $setCmd = '/ppp secret set [find name=' . ros_quote($targetUser) . '] profile=' . ros_quote($newProfile);
+                        $ssh->exec($setCmd);
+                        $dropCmd = '/ppp active remove [find name=' . ros_quote($targetUser) . ']';
+                        $ssh->exec($dropCmd);
+                        $messages[] = "Profil {$targetUser} di {$targetRouter} diset ke {$newProfile} dan koneksi aktif di-drop.";
+                    }
+                } catch (Throwable $e) {
+                    $errors[] = "Gagal update router {$targetRouter}: " . $e->getMessage();
+                }
+            }
+        }
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['_action'] ?? '') === 'delete_pppoe_secret') {
+    $targetRouter = trim((string) ($_POST['router'] ?? ''));
+    $targetUser = trim((string) ($_POST['user'] ?? ''));
+
+    if ($targetRouter === '' || $targetUser === '') {
+        $errors[] = 'Router dan user wajib diisi untuk menghapus secret.';
+    } else {
+        $routerData = null;
+        foreach ($serverRouters as $r) {
+            if (strcasecmp($r['name'] ?? '', $targetRouter) === 0) {
+                $routerData = $r;
+                break;
+            }
+        }
+
+        if (!$routerData) {
+            $errors[] = "Router {$targetRouter} tidak ditemukan atau bukan kategori server.";
+        } else {
+            $addressRaw = trim($routerData['address'] ?? '');
+            $username = $routerData['username'] ?? '';
+            $password = $routerData['password'] ?? '';
+            if ($addressRaw === '' || $username === '' || $password === '') {
+                $errors[] = "Kredensial router {$targetRouter} belum lengkap.";
+            } else {
+                $host = $addressRaw;
+                $port = 22;
+                if (strpos($addressRaw, ':') !== false) {
+                    [$hp, $pp] = explode(':', $addressRaw, 2);
+                    $host = $hp;
+                    $port = is_numeric($pp) ? (int) $pp : 22;
+                }
+
+                try {
+                    $ssh = new SSH2($host, $port);
+                    $ssh->setTimeout(5);
+                    if (!$ssh->login($username, $password)) {
+                        $errors[] = "Login gagal ke {$targetRouter}.";
+                    } else {
+                        $dropCmd = '/ppp active remove [find name=' . ros_quote($targetUser) . ']';
+                        $ssh->exec($dropCmd);
+                        $delCmd = '/ppp secret remove [find name=' . ros_quote($targetUser) . ']';
+                        $ssh->exec($delCmd);
+                        $messages[] = "Secret {$targetUser} di {$targetRouter} dihapus dan koneksi aktif di-drop.";
+                    }
+                } catch (Throwable $e) {
+                    $errors[] = "Gagal hapus secret di {$targetRouter}: " . $e->getMessage();
+                }
+            }
+        }
+    }
+}
 
 foreach ($serverRouters as $router) {
+    $serverName = $router['name'] ?? 'Router';
+    if (!isset($serverStats[$serverName])) {
+        $serverStats[$serverName] = ['total' => 0, 'active' => 0];
+    }
     $addressRaw = trim($router['address'] ?? '');
     $username = $router['username'] ?? '';
     $password = $router['password'] ?? '';
@@ -120,6 +241,12 @@ foreach ($serverRouters as $router) {
                     $secretProfiles[$nm] = $pr;
                     $profileOptions[] = $pr;
                     $profileMap[strtolower($name)][] = $pr;
+                    $secrets[] = [
+                        'router' => $name,
+                        'user' => $nm,
+                        'profile' => $pr,
+                    ];
+                    $serverStats[$serverName]['total']++;
                 }
             }
         }
@@ -138,6 +265,7 @@ foreach ($serverRouters as $router) {
                 $profileOptions[] = $profile;
                 $profileMap[strtolower($name)][] = $profile;
             }
+            $activeKeys[strtolower($name) . '|' . strtolower($user)] = true;
             $connections[] = [
                 'router' => $name,
                 'address' => $host,
@@ -148,6 +276,7 @@ foreach ($serverRouters as $router) {
                 'uptime' => $row['uptime'] ?? '-',
                 'uptime_seconds' => pppoe_uptime_seconds($row['uptime'] ?? ''),
             ];
+            $serverStats[$serverName]['active']++;
         }
     } catch (Throwable $e) {
         $errors[] = "Gagal konek ke {$name} ({$host}:{$port}): " . $e->getMessage();
@@ -168,6 +297,46 @@ foreach ($profileMap as $rk => $list) {
     sort($unique, SORT_NATURAL | SORT_FLAG_CASE);
     $profileMap[$rk] = $unique;
 }
+
+// Hitung user tidak aktif (ada di secret tapi tidak aktif)
+foreach ($secrets as $s) {
+    $key = strtolower($s['router'] ?? '') . '|' . strtolower($s['user'] ?? '');
+    if (!isset($activeKeys[$key])) {
+        $inactiveUsers[] = $s;
+    }
+}
+
+$totalUsers = count($secrets);
+$totalActive = count($connections);
+$totalInactive = count($inactiveUsers);
+
+foreach ($serverStats as $name => $stat) {
+    $inactive = ($stat['total'] ?? 0) - ($stat['active'] ?? 0);
+    $serverStats[$name]['inactive'] = max(0, $inactive);
+}
+
+if (isset($_GET['format']) && $_GET['format'] === 'json') {
+    header('Content-Type: application/json');
+    echo json_encode([
+        'total_users' => $totalUsers,
+        'total_active' => $totalActive,
+        'total_inactive' => $totalInactive,
+        'servers' => $serverStats,
+        'active' => array_values(array_map(function ($row) {
+            return [
+                'router' => $row['router'] ?? '',
+                'user' => $row['user'] ?? '',
+                'profile' => $row['profile'] ?? '',
+                'caller' => $row['caller'] ?? '',
+                'remote' => $row['remote'] ?? '',
+                'uptime' => $row['uptime'] ?? '',
+                'uptime_seconds' => $row['uptime_seconds'] ?? 0,
+            ];
+        }, $connections)),
+        'timestamp' => date('c'),
+    ]);
+    exit;
+}
 ?>
 
 <section class="page-head">
@@ -184,6 +353,13 @@ foreach ($profileMap as $rk => $list) {
     <?php endforeach; ?>
   </div>
 <?php endif; ?>
+<?php if (!empty($messages)): ?>
+  <div class="note">
+    <?php foreach ($messages as $msg): ?>
+      <div><?php echo htmlspecialchars($msg); ?></div>
+    <?php endforeach; ?>
+  </div>
+<?php endif; ?>
 
 <div class="cards">
   <div class="card">
@@ -193,9 +369,40 @@ foreach ($profileMap as $rk => $list) {
   </div>
   <div class="card">
     <h3>PPPoE Aktif</h3>
-    <div class="stat-value"><?php echo count($connections); ?></div>
+    <div class="stat-value" id="cardActive"><?php echo $totalActive; ?></div>
     <div class="label">Total sesi</div>
   </div>
+  <div class="card">
+    <h3>Total User</h3>
+    <div class="stat-value" id="cardTotal"><?php echo $totalUsers; ?></div>
+    <div class="label">Dari PPP secret</div>
+    <?php if (!empty($serverStats)): ?>
+      <button class="btn" type="button" id="openServerStats">Detail per Server</button>
+    <?php endif; ?>
+  </div>
+  <div class="card">
+    <h3>Tidak Aktif</h3>
+    <div class="stat-value" id="cardInactive"><?php echo $totalInactive; ?></div>
+    <div class="label">Secret tidak ada sesi aktif</div>
+    <?php if ($totalInactive > 0): ?>
+      <button class="btn" type="button" id="openInactive">Lihat</button>
+    <?php endif; ?>
+  </div>
+</div>
+
+<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0;">
+  <button class="icon-button" id="autoRefreshToggle">Auto Refresh: Off</button>
+  <label class="label" style="display:flex;align-items:center;gap:6px;">
+    Interval:
+    <select id="autoRefreshInterval" style="padding:8px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--text);">
+      <option value="1000">1 detik</option>
+      <option value="2000">2 detik</option>
+      <option value="3000">3 detik</option>
+      <option value="4000">4 detik</option>
+      <option value="5000" selected>5 detik</option>
+    </select>
+  </label>
+  <span class="label">Auto refresh memuat ulang data dan uptime.</span>
 </div>
 
 <?php if (empty($connections)): ?>
@@ -247,6 +454,7 @@ foreach ($profileMap as $rk => $list) {
           <th>
             <button type="button" class="icon-button" id="sortUptime">Uptime</button>
           </th>
+          <th>Aksi</th>
         </tr>
       </thead>
       <tbody>
@@ -256,11 +464,12 @@ foreach ($profileMap as $rk => $list) {
           ?>
           <tr
             data-router="<?php echo htmlspecialchars(strtolower($c['router'] ?? '')); ?>"
+            data-router-raw="<?php echo htmlspecialchars($c['router'] ?? ''); ?>"
             data-profile="<?php echo htmlspecialchars(strtolower($c['profile'] ?? '')); ?>"
             data-profile-raw="<?php echo htmlspecialchars($c['profile'] ?? ''); ?>"
             data-uptime="<?php echo htmlspecialchars($c['uptime_seconds']); ?>"
             data-search="<?php echo htmlspecialchars($searchBlob); ?>"
-          >
+            >
             <td><?php echo htmlspecialchars($c['router']); ?></td>
             <td><?php echo htmlspecialchars($c['user']); ?></td>
             <td class="text-wrap"><?php echo htmlspecialchars($c['profile']); ?></td>
@@ -275,6 +484,15 @@ foreach ($profileMap as $rk => $list) {
               <?php endif; ?>
             </td>
             <td><?php echo htmlspecialchars($c['uptime']); ?></td>
+            <td>
+              <button
+                type="button"
+                class="btn ghost pppoe-edit"
+                data-router="<?php echo htmlspecialchars($c['router'] ?? '', ENT_QUOTES); ?>"
+                data-user="<?php echo htmlspecialchars($c['user'] ?? '', ENT_QUOTES); ?>"
+                data-profile="<?php echo htmlspecialchars($c['profile'] ?? '', ENT_QUOTES); ?>"
+              >Edit</button>
+            </td>
           </tr>
         <?php endforeach; ?>
       </tbody>
@@ -282,17 +500,182 @@ foreach ($profileMap as $rk => $list) {
   </div>
 <?php endif; ?>
 
+<div class="modal-backdrop" id="pppoeModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div class="label">Edit PPPoE User</div>
+        <h4 id="pppoeModalTitle">Edit Profile</h4>
+        <div class="modal-subtitle">Pilih profil baru, koneksi aktif akan di-drop setelah simpan.</div>
+      </div>
+      <button class="icon-button" type="button" data-pppoe-close>&times;</button>
+    </div>
+    <div class="modal-body">
+      <form method="post" class="report-list" id="pppoeEditForm">
+        <input type="hidden" name="_action" id="pppoeAction" value="update_pppoe_profile">
+        <input type="hidden" name="user" id="pppoeEditUser">
+
+        <label>
+          <div class="label">Router</div>
+          <select id="pppoeEditRouter" name="router" style="width:100%;padding:10px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--text);" required>
+            <?php foreach ($serverRouters as $sr): ?>
+              <option value="<?php echo htmlspecialchars($sr['name'] ?? ''); ?>">
+                <?php echo htmlspecialchars($sr['name'] ?? ''); ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
+        </label>
+
+        <label>
+          <div class="label">User</div>
+          <input id="pppoeEditUserLabel" type="text" style="width:100%;padding:10px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--text);" disabled>
+        </label>
+
+        <label>
+          <div class="label">Profil</div>
+          <select id="pppoeEditProfile" name="profile" style="width:100%;padding:10px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--text);" required></select>
+        </label>
+
+        <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">
+          <button class="icon-button" type="button" data-pppoe-close>Batal</button>
+          <button class="icon-button" type="button" id="pppoeDeleteBtn" style="border-color:rgba(248,113,113,0.6);color:#fecdd3;">Hapus Secret</button>
+          <button class="btn" type="submit">Simpan & Drop Koneksi</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="inactiveModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div class="label">User Tidak Aktif</div>
+        <h4>PPP Secret tanpa sesi aktif</h4>
+      </div>
+      <button class="icon-button" type="button" data-inactive-close>&times;</button>
+    </div>
+      <div class="modal-body">
+      <?php if (empty($inactiveUsers)): ?>
+        <div class="label">Semua user sedang aktif.</div>
+      <?php else: ?>
+        <div class="label" style="margin-bottom:8px;">Klik profil untuk edit di tabel utama.</div>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Router</th>
+              <th>User</th>
+              <th>Profile</th>
+              <th>Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php foreach ($inactiveUsers as $u): ?>
+              <tr>
+                <td><?php echo htmlspecialchars($u['router'] ?? '-'); ?></td>
+                <td><?php echo htmlspecialchars($u['user'] ?? '-'); ?></td>
+                <td class="text-wrap"><?php echo htmlspecialchars($u['profile'] ?? '-'); ?></td>
+                <td>
+                  <button
+                    type="button"
+                    class="btn ghost pppoe-edit"
+                    data-router="<?php echo htmlspecialchars($u['router'] ?? '', ENT_QUOTES); ?>"
+                    data-user="<?php echo htmlspecialchars($u['user'] ?? '', ENT_QUOTES); ?>"
+                    data-profile="<?php echo htmlspecialchars($u['profile'] ?? '', ENT_QUOTES); ?>"
+                  >Edit/Hapus</button>
+                </td>
+              </tr>
+            <?php endforeach; ?>
+          </tbody>
+        </table>
+      <?php endif; ?>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="serverModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div class="label">Statistik Server</div>
+        <h4>Total User per Server</h4>
+      </div>
+      <button class="icon-button" type="button" data-server-close>&times;</button>
+    </div>
+    <div class="modal-body">
+      <?php if (empty($serverStats)): ?>
+        <div class="label">Belum ada data server.</div>
+      <?php else: ?>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Router</th>
+              <th>Total User</th>
+              <th>Aktif</th>
+              <th>Tidak Aktif</th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php foreach ($serverStats as $name => $stat): ?>
+              <tr>
+                <td><?php echo htmlspecialchars($name); ?></td>
+                <td><?php echo (int) ($stat['total'] ?? 0); ?></td>
+                <td><?php echo (int) ($stat['active'] ?? 0); ?></td>
+                <td><?php echo (int) ($stat['inactive'] ?? 0); ?></td>
+              </tr>
+            <?php endforeach; ?>
+          </tbody>
+        </table>
+      <?php endif; ?>
+    </div>
+  </div>
+</div>
+
 <script>
   document.addEventListener('DOMContentLoaded', function () {
     const profileMap = <?php echo json_encode($profileMap, JSON_UNESCAPED_UNICODE); ?>;
     const profileSelect = document.getElementById('profileFilter');
     const searchInput = document.getElementById('pppoeSearch');
     const table = document.getElementById('pppoeTable');
-    const rows = table ? Array.from(table.querySelectorAll('tbody tr')) : [];
+    let rows = table ? Array.from(table.querySelectorAll('tbody tr')) : [];
     const routerSelect = document.getElementById('routerFilter');
     const sortProfileBtn = document.getElementById('sortProfile');
     const sortUptimeBtn = document.getElementById('sortUptime');
     let sortState = { field: 'uptime', dir: 'asc' };
+    const modal = document.getElementById('pppoeModal');
+    const modalClose = modal ? modal.querySelectorAll('[data-pppoe-close]') : [];
+    const editForm = document.getElementById('pppoeEditForm');
+    const editRouterInput = document.getElementById('pppoeEditRouter');
+    const editUserInput = document.getElementById('pppoeEditUser');
+    const editUserLabel = document.getElementById('pppoeEditUserLabel');
+    const editProfileSelect = document.getElementById('pppoeEditProfile');
+    const actionInput = document.getElementById('pppoeAction');
+    const deleteBtn = document.getElementById('pppoeDeleteBtn');
+    const inactiveModal = document.getElementById('inactiveModal');
+    const inactiveClose = inactiveModal ? inactiveModal.querySelectorAll('[data-inactive-close]') : [];
+    const inactiveOpen = document.getElementById('openInactive');
+    const serverModal = document.getElementById('serverModal');
+    const serverClose = serverModal ? serverModal.querySelectorAll('[data-server-close]') : [];
+    const serverOpen = document.getElementById('openServerStats');
+    const autoRefreshToggle = document.getElementById('autoRefreshToggle');
+    const autoRefreshInterval = document.getElementById('autoRefreshInterval');
+    let refreshIntervalMs = parseInt(localStorage.getItem('pppoeAutoRefreshMs') || '5000', 10);
+    let autoTimer = null;
+
+    function closeModalElement(el) {
+      if (!el) return;
+      el.classList.remove('open');
+      if (!document.querySelector('.modal-backdrop.open')) {
+        document.body.classList.remove('modal-open');
+      }
+    }
+
+    function openModalElement(el) {
+      if (!el) return;
+      document.querySelectorAll('.modal-backdrop.open').forEach((m) => m.classList.remove('open'));
+      el.classList.add('open');
+      document.body.classList.add('modal-open');
+    }
 
     function rebuildProfileOptions() {
       if (!profileSelect) return;
@@ -323,6 +706,47 @@ foreach ($profileMap as $rk => $list) {
       });
     }
 
+    function buildModalProfiles(routerRaw, currentProfile) {
+      if (!editProfileSelect) return;
+      const key = (routerRaw || '').toLowerCase();
+      const opts = profileMap[key] || [];
+      editProfileSelect.innerHTML = '';
+      if (!opts.length) {
+        const opt = document.createElement('option');
+        opt.value = currentProfile;
+        opt.textContent = currentProfile || 'Profil tidak diketahui';
+        opt.selected = true;
+        editProfileSelect.appendChild(opt);
+        return;
+      }
+      opts.forEach((p) => {
+        const opt = document.createElement('option');
+        opt.value = p;
+        opt.textContent = p;
+        if (p === currentProfile) opt.selected = true;
+        editProfileSelect.appendChild(opt);
+      });
+    }
+
+    function bindEditButtons() {
+      document.querySelectorAll('.pppoe-edit').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const routerRaw = btn.dataset.router || '';
+          const user = btn.dataset.user || '';
+          const profile = btn.dataset.profile || '';
+
+          if (actionInput) actionInput.value = 'update_pppoe_profile';
+          if (editRouterInput) editRouterInput.value = routerRaw;
+          if (editUserInput) editUserInput.value = user;
+          if (editUserLabel) editUserLabel.value = user;
+
+          buildModalProfiles(routerRaw, profile);
+
+          openModalElement(modal);
+        });
+      });
+    }
+
     function applyFilters() {
       const profileVal = (profileSelect?.value || '').toLowerCase().trim();
       const searchVal = (searchInput?.value || '').toLowerCase().trim();
@@ -341,16 +765,106 @@ foreach ($profileMap as $rk => $list) {
       });
     }
 
+    function syncTable(activeList) {
+      if (!table) return;
+      const tbody = table.querySelector('tbody');
+      if (!tbody) return;
+      const esc = (s) =>
+        (s || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+
+      const currentMap = {};
+      rows.forEach((r) => {
+        currentMap[r.dataset.key || ''] = r;
+      });
+
+      const nextRows = [];
+      activeList.forEach((c) => {
+        const key = `${(c.router || '').toLowerCase()}|${(c.user || '').toLowerCase()}`;
+        let tr = currentMap[key];
+        const searchBlob = [
+          c.router || '',
+          c.user || '',
+          c.profile || '',
+          c.caller || '',
+          c.remote || '',
+          c.uptime || '',
+        ]
+          .join(' ')
+          .toLowerCase();
+        const remoteHtml = c.remote
+          ? `<a href="http://${encodeURIComponent(c.remote)}" target="_blank" rel="noopener noreferrer">${esc(c.remote)}</a>`
+          : '-';
+
+        if (!tr) {
+          tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td></td>
+            <td></td>
+            <td class="text-wrap"></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td>
+              <button type="button" class="btn ghost pppoe-edit">Edit</button>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        }
+
+        const cells = tr.children;
+        cells[0].textContent = c.router || '-';
+        cells[1].textContent = c.user || '-';
+        cells[2].textContent = c.profile || '-';
+        cells[3].textContent = c.caller || '-';
+        cells[4].innerHTML = remoteHtml;
+        cells[5].textContent = c.uptime || '-';
+
+        const btn = cells[6]?.querySelector('.pppoe-edit');
+        if (btn) {
+          btn.dataset.router = c.router || '';
+          btn.dataset.user = c.user || '';
+          btn.dataset.profile = c.profile || '';
+        }
+
+        tr.dataset.key = key;
+        tr.dataset.router = (c.router || '').toLowerCase();
+        tr.dataset.routerRaw = c.router || '';
+        tr.dataset.profile = (c.profile || '').toLowerCase();
+        tr.dataset.profileRaw = c.profile || '';
+        tr.dataset.uptime = String(c.uptime_seconds || 0);
+        tr.dataset.search = searchBlob;
+        nextRows.push(tr);
+      });
+
+      // remove rows not in next list
+      const nextKeys = new Set(nextRows.map((r) => r.dataset.key || ''));
+      Object.keys(currentMap).forEach((k) => {
+        if (!nextKeys.has(k) && currentMap[k].parentElement) {
+          currentMap[k].parentElement.removeChild(currentMap[k]);
+        }
+      });
+
+      rows = nextRows;
+      bindEditButtons();
+      applyFilters();
+      applySort(sortState.field, false);
+    }
+
     function onRouterChange() {
       rebuildProfileOptions();
       applyFilters();
     }
 
-    function applySort(field) {
+    function applySort(field, toggle = true) {
       if (!table) return;
-      if (sortState.field === field) {
+      if (toggle && sortState.field === field) {
         sortState.dir = sortState.dir === 'asc' ? 'desc' : 'asc';
-      } else {
+      } else if (toggle || sortState.field !== field) {
         sortState.field = field;
         sortState.dir = 'asc';
       }
@@ -371,11 +885,13 @@ foreach ($profileMap as $rk => $list) {
       sorted.forEach((r) => tbody.appendChild(r));
       applyFilters();
 
+      const up = '↑';
+      const down = '↓';
       if (sortProfileBtn) {
-        sortProfileBtn.textContent = 'Profil ' + (sortState.field === 'profile' ? (sortState.dir === 'asc' ? '↑' : '↓') : '');
+        sortProfileBtn.textContent = 'Profil ' + (sortState.field === 'profile' ? (sortState.dir === 'asc' ? up : down) : '');
       }
       if (sortUptimeBtn) {
-        sortUptimeBtn.textContent = 'Uptime ' + (sortState.field === 'uptime' ? (sortState.dir === 'asc' ? '↑' : '↓') : '');
+        sortUptimeBtn.textContent = 'Uptime ' + (sortState.field === 'uptime' ? (sortState.dir === 'asc' ? up : down) : '');
       }
     }
 
@@ -393,6 +909,190 @@ foreach ($profileMap as $rk => $list) {
     }
     if (sortUptimeBtn) {
       sortUptimeBtn.addEventListener('click', () => applySort('uptime'));
+    }
+
+    function buildModalProfiles(routerRaw, currentProfile) {
+      if (!editProfileSelect) return;
+      const key = (routerRaw || '').toLowerCase();
+      const opts = profileMap[key] || [];
+      editProfileSelect.innerHTML = '';
+      if (!opts.length) {
+        const opt = document.createElement('option');
+        opt.value = currentProfile;
+        opt.textContent = currentProfile || 'Profil tidak diketahui';
+        opt.selected = true;
+        editProfileSelect.appendChild(opt);
+        return;
+      }
+      opts.forEach((p) => {
+        const opt = document.createElement('option');
+        opt.value = p;
+        opt.textContent = p;
+        if (p === currentProfile) opt.selected = true;
+        editProfileSelect.appendChild(opt);
+      });
+    }
+
+    document.querySelectorAll('.pppoe-edit').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const routerRaw = btn.dataset.router || '';
+        const user = btn.dataset.user || '';
+        const profile = btn.dataset.profile || '';
+
+        if (actionInput) actionInput.value = 'update_pppoe_profile';
+        if (editRouterInput) editRouterInput.value = routerRaw;
+        if (editUserInput) editUserInput.value = user;
+        if (editUserLabel) editUserLabel.value = user;
+
+        buildModalProfiles(routerRaw, profile);
+
+        closeModalElement(inactiveModal);
+        openModalElement(modal);
+      });
+    });
+
+    if (editRouterInput) {
+      editRouterInput.addEventListener('change', () => {
+        const currentProfile = editProfileSelect ? editProfileSelect.value : '';
+        buildModalProfiles(editRouterInput.value, currentProfile);
+      });
+    }
+
+    bindEditButtons();
+    modalClose.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        closeModalElement(modal);
+      });
+    });
+
+    if (modal) {
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+          closeModalElement(modal);
+        }
+      });
+    }
+    if (deleteBtn && actionInput && editForm) {
+      deleteBtn.addEventListener('click', () => {
+        if (!confirm('Hapus secret user ini? Ini juga akan drop koneksi aktif.')) return;
+        actionInput.value = 'delete_pppoe_secret';
+        editForm.submit();
+      });
+    }
+    if (inactiveOpen && inactiveModal) {
+      inactiveOpen.addEventListener('click', () => {
+        closeModalElement(modal);
+        openModalElement(inactiveModal);
+      });
+    }
+    inactiveClose.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        closeModalElement(inactiveModal);
+      });
+    });
+    if (inactiveModal) {
+      inactiveModal.addEventListener('click', (e) => {
+        if (e.target === inactiveModal) {
+          closeModalElement(inactiveModal);
+        }
+      });
+    }
+    if (serverOpen && serverModal) {
+      serverOpen.addEventListener('click', () => {
+        closeModalElement(modal);
+        closeModalElement(inactiveModal);
+        openModalElement(serverModal);
+      });
+    }
+    serverClose.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        closeModalElement(serverModal);
+      });
+    });
+    if (serverModal) {
+      serverModal.addEventListener('click', (e) => {
+        if (e.target === serverModal) {
+          closeModalElement(serverModal);
+        }
+      });
+    }
+
+    function updateAutoRefreshLabel(on) {
+      if (!autoRefreshToggle) return;
+      autoRefreshToggle.textContent = on ? 'Auto Refresh: On' : 'Auto Refresh: Off';
+    }
+
+    function stopAutoRefresh() {
+      if (autoTimer) {
+        clearInterval(autoTimer);
+        autoTimer = null;
+      }
+      localStorage.setItem('pppoeAutoRefresh', 'off');
+      updateAutoRefreshLabel(false);
+    }
+
+    async function doRefresh() {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        params.set('format', 'json');
+        const res = await fetch(window.location.pathname + '?' + params.toString(), { cache: 'no-store' });
+        if (!res.ok) {
+          return;
+        }
+        const data = await res.json();
+        const cardActive = document.getElementById('cardActive');
+        const cardTotal = document.getElementById('cardTotal');
+        const cardInactive = document.getElementById('cardInactive');
+        if (cardActive && typeof data.total_active !== 'undefined') cardActive.textContent = data.total_active;
+        if (cardTotal && typeof data.total_users !== 'undefined') cardTotal.textContent = data.total_users;
+        if (cardInactive && typeof data.total_inactive !== 'undefined') cardInactive.textContent = data.total_inactive;
+        if (Array.isArray(data.active)) {
+          rebuildTable(data.active);
+        }
+      } catch (e) {
+        // Biarkan auto refresh tetap jalan; mungkin koneksi sementara.
+      }
+    }
+
+    function startAutoRefresh() {
+      stopAutoRefresh();
+      doRefresh();
+      autoTimer = setInterval(() => {
+        doRefresh();
+      }, refreshIntervalMs);
+      localStorage.setItem('pppoeAutoRefresh', 'on');
+      localStorage.setItem('pppoeAutoRefreshMs', String(refreshIntervalMs));
+      updateAutoRefreshLabel(true);
+    }
+
+    if (autoRefreshToggle) {
+      const stored = localStorage.getItem('pppoeAutoRefresh');
+      if (stored === 'on') {
+        startAutoRefresh();
+      } else {
+        updateAutoRefreshLabel(false);
+      }
+
+      autoRefreshToggle.addEventListener('click', () => {
+        if (localStorage.getItem('pppoeAutoRefresh') === 'on') {
+          stopAutoRefresh();
+        } else {
+          startAutoRefresh();
+        }
+      });
+    }
+
+    if (autoRefreshInterval) {
+      // Set default selected based on stored value
+      autoRefreshInterval.value = String(refreshIntervalMs);
+      autoRefreshInterval.addEventListener('change', () => {
+        const val = parseInt(autoRefreshInterval.value || '5000', 10);
+        refreshIntervalMs = isNaN(val) ? 5000 : val;
+        localStorage.setItem('pppoeAutoRefreshMs', String(refreshIntervalMs));
+        if (localStorage.getItem('pppoeAutoRefresh') === 'on') {
+          startAutoRefresh();
+        }
+      });
     }
 
     rebuildProfileOptions();

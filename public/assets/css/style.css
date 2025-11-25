@@ -12,6 +12,7 @@
   --danger: #f87171;
   --success: #22c55e;
   --shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  --sidebar-width: 260px;
 }
 
 *,
@@ -130,16 +131,19 @@ option {
 }
 
 .layout {
-  display: grid;
-  grid-template-columns: 260px 1fr;
+  display: block;
   min-height: calc(100vh - 70px);
 }
 
 .sidebar {
+  position: fixed;
+  left: 0;
+  top: 70px;
+  height: calc(100vh - 70px);
   background: rgba(12, 18, 32, 0.86);
   border-right: 1px solid var(--border);
   padding: 20px 18px;
-  position: relative;
+  width: var(--sidebar-width);
 }
 
 .sidebar .section-label {
@@ -190,6 +194,7 @@ option {
 
 .content {
   padding: 26px 28px 40px;
+  margin-left: var(--sidebar-width);
 }
 
 .page-head {
@@ -438,6 +443,19 @@ option {
   padding: 16px 18px 20px;
 }
 
+.modal .btn,
+.modal .icon-button,
+.modal select,
+.modal input,
+.modal textarea {
+  width: auto;
+}
+
+.modal table th,
+.modal table td {
+  color: var(--text);
+}
+
 .modal h4 {
   margin: 0;
 }
@@ -543,7 +561,7 @@ body.modal-open {
 
 @media (max-width: 980px) {
   .layout {
-    grid-template-columns: 1fr;
+    display: block;
   }
 
   .sidebar {
@@ -553,6 +571,7 @@ body.modal-open {
     transform: translateX(-105%);
     transition: transform 0.18s ease;
     box-shadow: var(--shadow);
+    height: calc(100vh - 70px);
   }
 
   .sidebar.open {
@@ -561,6 +580,7 @@ body.modal-open {
 
   .content {
     padding: 22px 18px 40px;
+    margin-left: 0;
   }
 }
 
