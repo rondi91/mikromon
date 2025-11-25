@@ -9,6 +9,17 @@
         "created_at": "2025-11-25T07:47:03+00:00",
         "category": "SERVER",
         "location": "TRIANGLE",
-        "updated_at": "2025-11-25T08:16:53+00:00"
+        "updated_at": "2025-11-25T08:20:44+00:00"
+    },
+    {
+        "id": "rt_692567afcda094.77363091",
+        "name": "SERVER 2 40.1",
+        "address": "192.168.255.26",
+        "username": "rondi",
+        "password": "21184662",
+        "category": "SERVER",
+        "location": "TRIANGLE",
+        "note": "",
+        "created_at": "2025-11-25T08:24:15+00:00"
     }
 ]

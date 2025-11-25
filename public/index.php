@@ -5,6 +5,7 @@ $pages = [
     'dashboard' => ['title' => 'Dashboard'],
     'users' => ['title' => 'Pengguna'],
     'routers' => ['title' => 'Router Mikrotik'],
+    'pppoe' => ['title' => 'PPPoE Aktif'],
     'reports' => ['title' => 'Laporan'],
 ];
 
