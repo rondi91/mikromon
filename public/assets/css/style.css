@@ -389,6 +389,58 @@ a {
   margin-bottom: 12px;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+  padding: 18px;
+  backdrop-filter: blur(3px);
+}
+
+.modal-backdrop.open {
+  display: flex;
+}
+
+.modal {
+  background: rgba(17, 24, 39, 0.96);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  width: min(760px, 100%);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-body {
+  padding: 16px 18px 20px;
+}
+
+.modal h4 {
+  margin: 0;
+}
+
+.modal-subtitle {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+body.modal-open {
+  overflow: hidden;
+}
+
 .icon-button {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--border);

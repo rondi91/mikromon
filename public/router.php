@@ -3,6 +3,7 @@
 
 $basePath = dirname(__DIR__);
 $storeFile = $basePath . '/app/data/router.json';
+$categoryFile = $basePath . '/app/data/category.json';
 
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
@@ -57,6 +58,40 @@ if ($resource === 'menu' && $method === 'GET') {
     json_response(200, ['data' => $pages]);
 }
 
+$categories = read_store($categoryFile);
+$categories = is_array($categories) ? array_values(array_filter(array_map('trim', $categories))) : [];
+
+if ($resource === 'categories') {
+    if ($method === 'GET') {
+        json_response(200, ['data' => $categories]);
+    }
+
+    if ($method === 'POST') {
+        $name = trim($payload['name'] ?? '');
+        if ($name === '') {
+            json_response(400, ['error' => 'name wajib diisi']);
+        }
+
+        $exists = false;
+        foreach ($categories as $cat) {
+            if (strcasecmp($cat, $name) === 0) {
+                $exists = true;
+                $name = $cat;
+                break;
+            }
+        }
+
+        if (!$exists) {
+            $categories[] = $name;
+            write_store($categoryFile, $categories);
+        }
+
+        json_response(201, ['data' => $categories]);
+    }
+
+    json_response(405, ['error' => 'Metode tidak diizinkan']);
+}
+
 if ($target !== 'routers') {
     json_response(404, ['error' => 'Resource tidak ditemukan']);
 }
@@ -71,10 +106,28 @@ if ($method === 'POST') {
     $name = trim($payload['name'] ?? '');
     $address = trim($payload['address'] ?? '');
     $username = trim($payload['username'] ?? '');
+    $password = trim($payload['password'] ?? '');
+    $category = trim($payload['category'] ?? '');
+    $location = trim($payload['location'] ?? '');
     $note = trim($payload['note'] ?? '');
 
     if ($name === '' || $address === '') {
         json_response(400, ['error' => 'name dan address wajib diisi']);
+    }
+
+    if ($category !== '') {
+        $exists = false;
+        foreach ($categories as $cat) {
+            if (strcasecmp($cat, $category) === 0) {
+                $exists = true;
+                $category = $cat;
+                break;
+            }
+        }
+        if (!$exists) {
+            $categories[] = $category;
+            write_store($categoryFile, $categories);
+        }
     }
 
     $new = [
@@ -82,6 +135,9 @@ if ($method === 'POST') {
         'name' => $name,
         'address' => $address,
         'username' => $username,
+        'password' => $password,
+        'category' => $category,
+        'location' => $location,
         'note' => $note,
         'created_at' => date('c'),
     ];
@@ -104,6 +160,28 @@ if (in_array($method, ['PUT', 'PATCH'], true)) {
             $item['name'] = trim($payload['name'] ?? $item['name']);
             $item['address'] = trim($payload['address'] ?? $item['address']);
             $item['username'] = trim($payload['username'] ?? $item['username']);
+            $newPassword = trim($payload['password'] ?? '');
+            $item['password'] = $newPassword !== '' ? $newPassword : ($item['password'] ?? '');
+            $newCategory = trim($payload['category'] ?? '');
+            if ($newCategory !== '') {
+                $exists = false;
+                foreach ($categories as $cat) {
+                    if (strcasecmp($cat, $newCategory) === 0) {
+                        $exists = true;
+                        $newCategory = $cat;
+                        break;
+                    }
+                }
+                if (!$exists) {
+                    $categories[] = $newCategory;
+                    write_store($categoryFile, $categories);
+                }
+                $item['category'] = $newCategory;
+            }
+            $newLocation = trim($payload['location'] ?? '');
+            if ($newLocation !== '') {
+                $item['location'] = $newLocation;
+            }
             $item['note'] = trim($payload['note'] ?? $item['note']);
             $item['updated_at'] = date('c');
 
