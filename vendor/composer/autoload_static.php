@@ -15,6 +15,15 @@ class ComposerStaticInita702940bbf24a822224611db5c22942b
         array (
             'phpseclib3\\' => 11,
         ),
+        'S' => 
+        array (
+            'Symfony\\Component\\Process\\' => 26,
+            'Spatie\\Ssh\\' => 11,
+        ),
+        'R' => 
+        array (
+            'RouterOS\\' => 9,
+        ),
         'P' => 
         array (
             'ParagonIE\\ConstantTime\\' => 23,
@@ -25,6 +34,18 @@ class ComposerStaticInita702940bbf24a822224611db5c22942b
         'phpseclib3\\' => 
         array (
             0 => __DIR__ . '/..' . '/phpseclib/phpseclib/phpseclib',
+        ),
+        'Symfony\\Component\\Process\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/symfony/process',
+        ),
+        'Spatie\\Ssh\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/spatie/ssh/src',
+        ),
+        'RouterOS\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/evilfreelancer/routeros-api-php/src',
         ),
         'ParagonIE\\ConstantTime\\' => 
         array (

@@ -20,6 +20,7 @@ $pages = [
     ['key' => 'users', 'title' => 'Pengguna'],
     ['key' => 'routers', 'title' => 'Router Mikrotik'],
     ['key' => 'pppoe', 'title' => 'PPPoE Aktif'],
+    ['key' => 'wireless', 'title' => 'Wireless AP'],
     ['key' => 'reports', 'title' => 'Laporan'],
 ];
 

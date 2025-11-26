@@ -7,5 +7,8 @@ $baseDir = dirname($vendorDir);
 
 return array(
     'phpseclib3\\' => array($vendorDir . '/phpseclib/phpseclib/phpseclib'),
+    'Symfony\\Component\\Process\\' => array($vendorDir . '/symfony/process'),
+    'Spatie\\Ssh\\' => array($vendorDir . '/spatie/ssh/src'),
+    'RouterOS\\' => array($vendorDir . '/evilfreelancer/routeros-api-php/src'),
     'ParagonIE\\ConstantTime\\' => array($vendorDir . '/paragonie/constant_time_encoding/src'),
 );

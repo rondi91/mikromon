@@ -146,6 +146,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['_action'] ?? '') === 'upda
     }
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['_action'] ?? '') === 'add_pppoe_user') {
+    $targetRouter = trim((string) ($_POST['router'] ?? ''));
+    $targetUser = trim((string) ($_POST['username'] ?? ''));
+    $targetProfile = trim((string) ($_POST['profile'] ?? ''));
+
+    if ($targetRouter === '' || $targetUser === '' || $targetProfile === '') {
+        $errors[] = 'Router, username, dan profile wajib diisi.';
+    } else {
+        $routerData = null;
+        foreach ($serverRouters as $r) {
+            if (strcasecmp($r['name'] ?? '', $targetRouter) === 0) {
+                $routerData = $r;
+                break;
+            }
+        }
+
+        if (!$routerData) {
+            $errors[] = "Router {$targetRouter} tidak ditemukan atau bukan kategori server.";
+        } else {
+            $addressRaw = trim($routerData['address'] ?? '');
+            $username = $routerData['username'] ?? '';
+            $password = $routerData['password'] ?? '';
+            if ($addressRaw === '' || $username === '' || $password === '') {
+                $errors[] = "Kredensial router {$targetRouter} belum lengkap.";
+            } else {
+                $host = $addressRaw;
+                $port = 22;
+                if (strpos($addressRaw, ':') !== false) {
+                    [$hp, $pp] = explode(':', $addressRaw, 2);
+                    $host = $hp;
+                    $port = is_numeric($pp) ? (int) $pp : 22;
+                }
+
+                try {
+                    $ssh = new SSH2($host, $port);
+                    $ssh->setTimeout(5);
+                    if (!$ssh->login($username, $password)) {
+                        $errors[] = "Login gagal ke {$targetRouter}.";
+                    } else {
+                        $addCmd = '/ppp secret add name=' . ros_quote($targetUser) . ' password=' . ros_quote($targetUser) . ' profile=' . ros_quote($targetProfile) . ' service=any disabled=no';
+                        $ssh->exec($addCmd);
+                        $messages[] = "User PPPoE {$targetUser} ditambahkan ke {$targetRouter} (password=username, service=any).";
+                    }
+                } catch (Throwable $e) {
+                    $errors[] = "Gagal tambah user di {$targetRouter}: " . $e->getMessage();
+                }
+            }
+        }
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['_action'] ?? '') === 'delete_pppoe_secret') {
     $targetRouter = trim((string) ($_POST['router'] ?? ''));
     $targetUser = trim((string) ($_POST['user'] ?? ''));
@@ -403,6 +454,7 @@ if (isset($_GET['format']) && $_GET['format'] === 'json') {
     </select>
   </label>
   <span class="label">Auto refresh memuat ulang data dan uptime.</span>
+  <button class="btn" type="button" id="openAddUser">+ Tambah PPPoE User</button>
 </div>
 
 <?php if (empty($connections)): ?>
@@ -631,6 +683,50 @@ if (isset($_GET['format']) && $_GET['format'] === 'json') {
   </div>
 </div>
 
+<div class="modal-backdrop" id="addUserModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div class="label">Tambah PPPoE User</div>
+        <h4>Tambah PPPoE User</h4>
+        <div class="modal-subtitle">Password akan disamakan dengan username, service=any.</div>
+      </div>
+      <button class="icon-button" type="button" data-add-close>&times;</button>
+    </div>
+    <div class="modal-body">
+      <form method="post" class="report-list" id="addUserForm">
+        <input type="hidden" name="_action" value="add_pppoe_user">
+
+        <label>
+          <div class="label">Router (server)</div>
+          <select id="addUserRouter" name="router" style="width:100%;padding:10px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--text);" required>
+            <?php foreach ($serverRouters as $sr): ?>
+              <option value="<?php echo htmlspecialchars($sr['name'] ?? ''); ?>">
+                <?php echo htmlspecialchars($sr['name'] ?? ''); ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
+        </label>
+
+        <label>
+          <div class="label">Username</div>
+          <input name="username" id="addUserName" style="width:100%;padding:10px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--text);" placeholder="username" required>
+        </label>
+
+        <label>
+          <div class="label">Profile</div>
+          <select id="addUserProfile" name="profile" style="width:100%;padding:10px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--text);" required></select>
+        </label>
+
+        <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">
+          <button class="icon-button" type="button" data-add-close>Batal</button>
+          <button class="btn" type="submit">Simpan</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <script>
   document.addEventListener('DOMContentLoaded', function () {
     const profileMap = <?php echo json_encode($profileMap, JSON_UNESCAPED_UNICODE); ?>;
@@ -659,6 +755,11 @@ if (isset($_GET['format']) && $_GET['format'] === 'json') {
     const serverOpen = document.getElementById('openServerStats');
     const autoRefreshToggle = document.getElementById('autoRefreshToggle');
     const autoRefreshInterval = document.getElementById('autoRefreshInterval');
+    const addUserModal = document.getElementById('addUserModal');
+    const addUserClose = addUserModal ? addUserModal.querySelectorAll('[data-add-close]') : [];
+    const addUserOpen = document.getElementById('openAddUser');
+    const addUserRouter = document.getElementById('addUserRouter');
+    const addUserProfile = document.getElementById('addUserProfile');
     let refreshIntervalMs = parseInt(localStorage.getItem('pppoeAutoRefreshMs') || '5000', 10);
     let autoTimer = null;
 
@@ -725,6 +826,27 @@ if (isset($_GET['format']) && $_GET['format'] === 'json') {
         opt.textContent = p;
         if (p === currentProfile) opt.selected = true;
         editProfileSelect.appendChild(opt);
+      });
+    }
+
+    function buildAddProfiles(routerRaw) {
+      if (!addUserProfile) return;
+      const key = (routerRaw || '').toLowerCase();
+      const opts = profileMap[key] || [];
+      addUserProfile.innerHTML = '';
+      if (!opts.length) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'Profil belum ada';
+        addUserProfile.appendChild(opt);
+        return;
+      }
+      opts.forEach((p, idx) => {
+        const opt = document.createElement('option');
+        opt.value = p;
+        opt.textContent = p;
+        if (idx === 0) opt.selected = true;
+        addUserProfile.appendChild(opt);
       });
     }
 
@@ -1015,6 +1137,31 @@ if (isset($_GET['format']) && $_GET['format'] === 'json') {
           closeModalElement(serverModal);
         }
       });
+    }
+
+    if (addUserOpen && addUserModal) {
+      addUserOpen.addEventListener('click', () => {
+        const routerVal = addUserRouter ? addUserRouter.value : '';
+        buildAddProfiles(routerVal);
+        openModalElement(addUserModal);
+        if (addUserRouter) addUserRouter.focus();
+      });
+    }
+    addUserClose.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        closeModalElement(addUserModal);
+      });
+    });
+    if (addUserModal) {
+      addUserModal.addEventListener('click', (e) => {
+        if (e.target === addUserModal) {
+          closeModalElement(addUserModal);
+        }
+      });
+    }
+    if (addUserRouter) {
+      addUserRouter.addEventListener('change', () => buildAddProfiles(addUserRouter.value));
+      buildAddProfiles(addUserRouter.value);
     }
 
     function updateAutoRefreshLabel(on) {

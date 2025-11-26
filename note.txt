@@ -1,0 +1,11 @@
+
+actifkan fungsi refreash dan set auto resresh jadi 1s
+
+
+Refresh dan auto-refresh sudah diaktifkan kembali dengan interval 1 detik, serta script bebas dari error brace.
+
+src/pages/pppoe.php:
+Tombol Refresh memanggil refreshData() yang fetch pppoe_data.php?dir=... lalu render ulang.
+Checkbox Auto refresh akan memulai interval 1 detik (start/stop) untuk memanggil refreshData().
+Duplikasi IIFE sudah dibersihkan sebelumnya; sintaks OK.
+Sintaks cek: php -l src/pages/pppoe.php lulus. Refresh/auto-refresh sekarang aktif; sort uptime tetap menggunakan data terbaru yang di-render.

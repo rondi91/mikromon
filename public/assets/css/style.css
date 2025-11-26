@@ -249,6 +249,89 @@ option {
   padding: 16px;
   box-shadow: var(--shadow);
 }
+.card .label {
+  display: block;
+}
+
+.reg-card {
+  background: linear-gradient(145deg, #0f172a, #0b1220);
+  border: 1px solid #1f2937;
+  border-radius: 16px;
+  padding: 14px 16px;
+  box-shadow: var(--shadow);
+}
+
+.reg-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+
+.reg-headline {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: white;
+}
+
+.reg-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: uppercase;
+}
+
+.reg-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.reg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reg-client {
+  display: grid;
+  grid-template-columns: 0.8fr 0.7fr 1fr 1fr 1fr 1.4fr 1.2fr 1.4fr;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.reg-client .badge {
+  display: inline-block;
+}
+
+.reg-client .label {
+  font-size: 12px;
+}
+
+.reg-client.head {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(129, 140, 248, 0.3);
+  font-weight: 700;
+}
+
+.reg-client .signal-badge {
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(34, 197, 94, 0.14);
+  color: #34d399;
+  font-weight: 700;
+}
+
+.muted {
+  color: var(--muted);
+}
 
 .card h3 {
   margin: 0 0 4px;

@@ -6,6 +6,7 @@ $pages = [
     'users' => ['title' => 'Pengguna'],
     'routers' => ['title' => 'Router Mikrotik'],
     'pppoe' => ['title' => 'PPPoE Aktif'],
+    'wireless' => ['title' => 'Wireless AP'],
     'reports' => ['title' => 'Laporan'],
 ];
 
@@ -25,6 +26,16 @@ if (!file_exists($pageFile)) {
     $pageTitle = $pages[$page]['title'];
     $pageFile = $basePath . '/app/pages/' . $page . '.php';
     $notFound = true;
+}
+
+// Jika permintaan format JSON khusus halaman wireless, balas sebelum render HTML
+if (
+    $page === 'wireless'
+    && isset($_GET['format'])
+    && in_array($_GET['format'], ['pppoe', 'reg'], true)
+) {
+    include $pageFile;
+    exit;
 }
 ?>
 <!DOCTYPE html>
